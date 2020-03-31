@@ -5,12 +5,13 @@ import android.hardware.camera2.CameraCharacteristics;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Build;
-import androidx.annotation.RequiresApi;
 import android.util.Size;
 import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.SurfaceView;
 import android.view.TextureView;
+import androidx.annotation.RequiresApi;
+import com.pedro.encoder.Frame;
 import com.pedro.encoder.audio.AudioEncoder;
 import com.pedro.encoder.audio.GetAacData;
 import com.pedro.encoder.input.audio.GetMicrophoneData;
@@ -178,16 +179,22 @@ public abstract class Camera2Base implements GetAacData, GetVideoData, GetMicrop
    * doesn't support any configuration seated or your device hasn't a H264 encoder).
    */
   public boolean prepareVideo(int width, int height, int fps, int bitrate, boolean hardwareRotation,
-      int iFrameInterval, int rotation) {
+      int iFrameInterval, int rotation, int avcProfile, int avcProfileLevel) {
     if (onPreview && !(glInterface != null && width == previewWidth && height == previewHeight)) {
       stopPreview();
       onPreview = true;
     }
     boolean result =
         videoEncoder.prepareVideoEncoder(width, height, fps, bitrate, rotation, hardwareRotation,
-            iFrameInterval, FormatVideoEncoder.SURFACE);
+            iFrameInterval, FormatVideoEncoder.SURFACE, avcProfile, avcProfileLevel);
     prepareCameraManager();
     return result;
+  }
+
+  public boolean prepareVideo(int width, int height, int fps, int bitrate, boolean hardwareRotation,
+      int iFrameInterval, int rotation) {
+    return prepareVideo(width, height, fps, bitrate, hardwareRotation, iFrameInterval, rotation, -1,
+        -1);
   }
 
   /**
@@ -279,6 +286,55 @@ public abstract class Camera2Base implements GetAacData, GetVideoData, GetMicrop
     if (!streaming) stopStream();
   }
 
+  public void replaceView(Context context) {
+    isBackground = true;
+    replaceGlInterface(new OffScreenGlThread(context));
+  }
+
+  public void replaceView(OpenGlView openGlView) {
+    isBackground = false;
+    replaceGlInterface(openGlView);
+  }
+
+  public void replaceView(LightOpenGlView lightOpenGlView) {
+    isBackground = false;
+    replaceGlInterface(lightOpenGlView);
+  }
+
+  /**
+   * Replace glInterface used on fly. Ignored if you use SurfaceView, TextureView or context without
+   * OpenGl.
+   */
+  private void replaceGlInterface(GlInterface glInterface) {
+    if (this.glInterface != null && Build.VERSION.SDK_INT >= 18) {
+      if (isStreaming() || isRecording() || isOnPreview()) {
+        cameraManager.closeCamera();
+        this.glInterface.removeMediaCodecSurface();
+        this.glInterface.stop();
+        this.glInterface = glInterface;
+        this.glInterface.init();
+        boolean isPortrait = CameraHelper.isPortrait(context);
+        if (isPortrait) {
+          this.glInterface.setEncoderSize(videoEncoder.getHeight(), videoEncoder.getWidth());
+        } else {
+          this.glInterface.setEncoderSize(videoEncoder.getWidth(), videoEncoder.getHeight());
+        }
+        this.glInterface.setRotation(
+            videoEncoder.getRotation() == 0 ? 270 : videoEncoder.getRotation() - 90);
+        this.glInterface.start();
+        if (isStreaming() || isRecording()) {
+          this.glInterface.addMediaCodecSurface(videoEncoder.getInputSurface());
+        }
+        cameraManager.prepareCamera(this.glInterface.getSurfaceTexture(), videoEncoder.getWidth(),
+            videoEncoder.getHeight());
+        cameraManager.openLastCamera();
+      } else {
+        this.glInterface = glInterface;
+        this.glInterface.init();
+      }
+    }
+  }
+
   /**
    * Start camera preview. Ignored, if stream or preview is started.
    *
@@ -296,7 +352,7 @@ public abstract class Camera2Base implements GetAacData, GetVideoData, GetMicrop
       } else if (textureView != null) {
         cameraManager.prepareCamera(new Surface(textureView.getSurfaceTexture()));
       } else if (glInterface != null) {
-        boolean isPortrait = context.getResources().getConfiguration().orientation == 1;
+        boolean isPortrait = CameraHelper.isPortrait(context);
         if (isPortrait) {
           glInterface.setEncoderSize(height, width);
         } else {
@@ -334,11 +390,11 @@ public abstract class Camera2Base implements GetAacData, GetVideoData, GetMicrop
    * @stopStream to release camera properly if you will close activity.
    */
   public void stopPreview() {
-    if (!isStreaming() && onPreview && !isBackground) {
+    if (!isStreaming() && !isRecording() && onPreview && !isBackground) {
       if (glInterface != null) {
         glInterface.stop();
       }
-      cameraManager.closeCamera(false);
+      cameraManager.closeCamera();
       onPreview = false;
       previewWidth = 0;
       previewHeight = 0;
@@ -359,7 +415,7 @@ public abstract class Camera2Base implements GetAacData, GetVideoData, GetMicrop
    */
   public void startStream(String url) {
     streaming = true;
-    if (!recordController.isRecording()) {
+    if (!recordController.isRunning()) {
       startEncoders();
     } else {
       resetVideoEncoder();
@@ -392,7 +448,7 @@ public abstract class Camera2Base implements GetAacData, GetVideoData, GetMicrop
     if (glInterface != null) {
       glInterface.addMediaCodecSurface(videoEncoder.getInputSurface());
     } else {
-      cameraManager.closeCamera(false);
+      cameraManager.closeCamera();
       cameraManager.prepareCamera(videoEncoder.getInputSurface());
       cameraManager.openLastCamera();
     }
@@ -435,14 +491,19 @@ public abstract class Camera2Base implements GetAacData, GetVideoData, GetMicrop
       stopStreamRtp();
     }
     if (!recordController.isRecording()) {
-      cameraManager.closeCamera(!isBackground);
       onPreview = !isBackground;
       microphoneManager.stop();
       if (glInterface != null) {
         glInterface.removeMediaCodecSurface();
         if (glInterface instanceof OffScreenGlThread) {
-          glInterface.removeMediaCodecSurface();
           glInterface.stop();
+          cameraManager.closeCamera();
+        }
+      } else {
+        if (isBackground) {
+          cameraManager.closeCamera();
+        } else {
+          cameraManager.stopRepeatingEncoder();
         }
       }
       videoEncoder.stop();
@@ -451,15 +512,30 @@ public abstract class Camera2Base implements GetAacData, GetVideoData, GetMicrop
     }
   }
 
+  public boolean reTry(long delay, String reason) {
+    boolean result = shouldRetry(reason);
+    if (result) {
+      reTry(delay);
+    }
+    return result;
+  }
+
+  /**
+   * Replace with reTry(long delay, String reason);
+   */
+  @Deprecated
   public void reTry(long delay) {
     resetVideoEncoder();
     reConnect(delay);
   }
 
-  //re connection
-  public abstract void setReTries(int reTries);
-
+  /**
+   * Replace with reTry(long delay, String reason);
+   */
+  @Deprecated
   public abstract boolean shouldRetry(String reason);
+
+  public abstract void setReTries(int reTries);
 
   protected abstract void reConnect(long delay);
 
@@ -541,23 +617,6 @@ public abstract class Camera2Base implements GetAacData, GetVideoData, GetMicrop
    */
   public boolean isVideoEnabled() {
     return videoEnabled;
-  }
-
-  /**
-   * Disable send camera frames and send a black image with low bitrate(to reduce bandwith used)
-   * instance it.
-   */
-  public void disableVideo() {
-    videoEncoder.startSendBlackImage();
-    videoEnabled = false;
-  }
-
-  /**
-   * Enable send camera frames.
-   */
-  public void enableVideo() {
-    videoEncoder.stopSendBlackImage();
-    videoEnabled = true;
   }
 
   /**
@@ -733,8 +792,8 @@ public abstract class Camera2Base implements GetAacData, GetVideoData, GetMicrop
   }
 
   @Override
-  public void inputPCMData(byte[] buffer, int offset, int size) {
-    audioEncoder.inputPCMData(buffer, offset, size);
+  public void inputPCMData(Frame frame) {
+    audioEncoder.inputPCMData(frame);
   }
 
   @Override

@@ -3,14 +3,17 @@ package com.pedro.rtplibrary.base;
 import android.content.Context;
 import android.content.Intent;
 import android.hardware.display.VirtualDisplay;
+import android.media.AudioAttributes;
+import android.media.AudioPlaybackCaptureConfiguration;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.media.projection.MediaProjection;
 import android.media.projection.MediaProjectionManager;
 import android.os.Build;
-import androidx.annotation.RequiresApi;
 import android.view.Surface;
 import android.view.SurfaceView;
+import androidx.annotation.RequiresApi;
+import com.pedro.encoder.Frame;
 import com.pedro.encoder.audio.AudioEncoder;
 import com.pedro.encoder.audio.GetAacData;
 import com.pedro.encoder.input.audio.GetMicrophoneData;
@@ -102,17 +105,22 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
    * @return true if success, false if you get a error (Normally because the encoder selected
    * doesn't support any configuration seated or your device hasn't a H264 encoder).
    */
-  public boolean prepareVideo(int width, int height, int fps, int bitrate, int rotation, int dpi) {
+  public boolean prepareVideo(int width, int height, int fps, int bitrate, int rotation, int dpi,
+                              int avcProfile, int avcProfileLevel, int iFrameInterval) {
     this.dpi = dpi;
     boolean result =
-        videoEncoder.prepareVideoEncoder(width, height, fps, bitrate, rotation, true, 2,
-            FormatVideoEncoder.SURFACE);
+            videoEncoder.prepareVideoEncoder(width, height, fps, bitrate, rotation, true, iFrameInterval,
+                    FormatVideoEncoder.SURFACE, avcProfile, avcProfileLevel);
     if (glInterface != null) {
       glInterface = new OffScreenGlThread(context);
       glInterface.init();
       glInterface.setEncoderSize(videoEncoder.getWidth(), videoEncoder.getHeight());
     }
     return result;
+  }
+
+  public boolean prepareVideo(int width, int height, int fps, int bitrate, int rotation, int dpi) {
+    return prepareVideo(width, height, fps, bitrate, rotation, dpi, -1, -1, 2);
   }
 
   protected abstract void prepareAudioRtp(boolean isStereo, int sampleRate);
@@ -135,6 +143,33 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
     prepareAudioRtp(isStereo, sampleRate);
     return audioEncoder.prepareAudioEncoder(bitrate, sampleRate, isStereo,
         microphoneManager.getMaxInputSize());
+  }
+
+  /**
+   * Call this method before use @startStream for streaming internal audio only.
+   *
+   * @param bitrate AAC in kb.
+   * @param sampleRate of audio in hz. Can be 8000, 16000, 22500, 32000, 44100.
+   * @param isStereo true if you want Stereo audio (2 audio channels), false if you want Mono audio
+   * (1 audio channel).
+   * @see AudioPlaybackCaptureConfiguration.Builder#Builder(MediaProjection)
+   */
+  @RequiresApi(api = Build.VERSION_CODES.Q)
+  public boolean prepareInternalAudio(int bitrate, int sampleRate, boolean isStereo) {
+    if (mediaProjection == null) {
+      mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data);
+    }
+
+    AudioPlaybackCaptureConfiguration config = new AudioPlaybackCaptureConfiguration
+            .Builder(mediaProjection)
+            .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
+            .addMatchingUsage(AudioAttributes.USAGE_GAME)
+            .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
+            .build();
+    microphoneManager.createInternalMicrophone(config, sampleRate, isStereo);
+    prepareAudioRtp(isStereo, sampleRate);
+    return audioEncoder.prepareAudioEncoder(bitrate, sampleRate, isStereo,
+            microphoneManager.getMaxInputSize());
   }
 
   /**
@@ -226,7 +261,7 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
    */
   public void startStream(String url) {
     streaming = true;
-    if (!recordController.isRecording()) {
+    if (!recordController.isRunning()) {
       startEncoders(resultCode, data);
     } else {
       resetVideoEncoder();
@@ -247,7 +282,9 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
     }
     Surface surface =
         (glInterface != null) ? glInterface.getSurface() : videoEncoder.getInputSurface();
-    mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data);
+    if (mediaProjection == null) {
+      mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data);
+    }
     virtualDisplay = mediaProjection.createVirtualDisplay("Stream Display", videoEncoder.getWidth(),
         videoEncoder.getHeight(), dpi, 0, surface, null, null);
     microphoneManager.start();
@@ -292,15 +329,30 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
     }
   }
 
+  public boolean reTry(long delay, String reason) {
+    boolean result = shouldRetry(reason);
+    if (result) {
+      reTry(delay);
+    }
+    return result;
+  }
+
+  /**
+   * Replace with reTry(long delay, String reason);
+   */
+  @Deprecated
   public void reTry(long delay) {
     resetVideoEncoder();
     reConnect(delay);
   }
 
-  //re connection
-  public abstract void setReTries(int reTries);
-
+  /**
+   * Replace with reTry(long delay, String reason);
+   */
+  @Deprecated
   public abstract boolean shouldRetry(String reason);
+
+  public abstract void setReTries(int reTries);
 
   protected abstract void reConnect(long delay);
 
@@ -363,23 +415,6 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
    */
   public boolean isVideoEnabled() {
     return videoEnabled;
-  }
-
-  /**
-   * Disable send camera frames and send a black image with low bitrate(to reduce bandwith used)
-   * instance it.
-   */
-  public void disableVideo() {
-    videoEncoder.startSendBlackImage();
-    videoEnabled = false;
-  }
-
-  /**
-   * Enable send display screen frames.
-   */
-  public void enableVideo() {
-    videoEncoder.stopSendBlackImage();
-    videoEnabled = true;
   }
 
   public int getBitrate() {
@@ -477,8 +512,8 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
   }
 
   @Override
-  public void inputPCMData(byte[] buffer, int offset, int size) {
-    audioEncoder.inputPCMData(buffer, offset, size);
+  public void inputPCMData(Frame frame) {
+    audioEncoder.inputPCMData(frame);
   }
 
   @Override

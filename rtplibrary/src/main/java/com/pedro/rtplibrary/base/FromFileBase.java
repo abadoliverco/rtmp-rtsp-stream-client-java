@@ -7,8 +7,9 @@ import android.media.AudioTrack;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Build;
-import androidx.annotation.RequiresApi;
 import android.util.Log;
+import androidx.annotation.RequiresApi;
+import com.pedro.encoder.Frame;
 import com.pedro.encoder.audio.AudioEncoder;
 import com.pedro.encoder.audio.GetAacData;
 import com.pedro.encoder.input.audio.GetMicrophoneData;
@@ -128,13 +129,19 @@ public abstract class FromFileBase
    * doesn't support any configuration seated or your device hasn't a H264 encoder).
    * @throws IOException Normally file not found.
    */
-  public boolean prepareVideo(String filePath, int bitRate, int rotation) throws IOException {
+  public boolean prepareVideo(String filePath, int bitRate, int rotation, int avcProfile,
+      int avcProfileLevel) throws IOException {
     videoPath = filePath;
     videoDecoder = new VideoDecoder(videoDecoderInterface, this);
     if (!videoDecoder.initExtractor(filePath)) return false;
     boolean hardwareRotation = glInterface == null;
     return videoEncoder.prepareVideoEncoder(videoDecoder.getWidth(), videoDecoder.getHeight(), 30,
-        bitRate, rotation, hardwareRotation, 2, FormatVideoEncoder.SURFACE);
+        bitRate, rotation, hardwareRotation, 2, FormatVideoEncoder.SURFACE, avcProfile,
+        avcProfileLevel);
+  }
+
+  public boolean prepareVideo(String filePath, int bitRate, int rotation) throws IOException {
+    return prepareVideo(filePath, bitRate, rotation, -1, -1);
   }
 
   public boolean prepareVideo(String filePath) throws IOException {
@@ -224,7 +231,7 @@ public abstract class FromFileBase
    */
   public void startStream(String url) {
     streaming = true;
-    if (!recordController.isRecording()) {
+    if (!recordController.isRunning()) {
       startEncoders();
     } else {
       resetVideoEncoder();
@@ -287,15 +294,30 @@ public abstract class FromFileBase
 
   protected abstract void stopStreamRtp();
 
+  public boolean reTry(long delay, String reason) {
+    boolean result = shouldRetry(reason);
+    if (result) {
+      reTry(delay);
+    }
+    return result;
+  }
+
+  /**
+   * Replace with reTry(long delay, String reason);
+   */
+  @Deprecated
   public void reTry(long delay) {
     resetVideoEncoder();
     reConnect(delay);
   }
 
-  //re connection
-  public abstract void setReTries(int reTries);
-
+  /**
+   * Replace with reTry(long delay, String reason);
+   */
+  @Deprecated
   public abstract boolean shouldRetry(String reason);
+
+  public abstract void setReTries(int reTries);
 
   protected abstract void reConnect(long delay);
 
@@ -367,23 +389,6 @@ public abstract class FromFileBase
     } else {
       throw new RuntimeException("You can't do it. You are not using Opengl");
     }
-  }
-
-  /**
-   * Disable send camera frames and send a black image with low bitrate(to reduce bandwith used)
-   * instance it.
-   */
-  public void disableVideo() {
-    videoEncoder.startSendBlackImage();
-    videoEnabled = false;
-  }
-
-  /**
-   * Enable send MP4 file frames.
-   */
-  public void enableVideo() {
-    videoEncoder.stopSendBlackImage();
-    videoEnabled = true;
   }
 
   public int getBitrate() {
@@ -576,8 +581,10 @@ public abstract class FromFileBase
   }
 
   @Override
-  public void inputPCMData(byte[] buffer, int offset, int size) {
-    if (audioTrackPlayer != null) audioTrackPlayer.write(buffer, offset, size);
-    audioEncoder.inputPCMData(buffer, offset, size);
+  public void inputPCMData(Frame frame) {
+    if (audioTrackPlayer != null) {
+      audioTrackPlayer.write(frame.getBuffer(), frame.getOffset(), frame.getSize());
+    }
+    audioEncoder.inputPCMData(frame);
   }
 }

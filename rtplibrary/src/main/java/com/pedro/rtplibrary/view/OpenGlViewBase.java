@@ -98,7 +98,7 @@ public abstract class OpenGlViewBase extends SurfaceView
   public void start() {
     synchronized (sync) {
       Log.i(TAG, "Thread started.");
-      thread = new Thread(this);
+      thread = new Thread(this, "glThread");
       running = true;
       thread.start();
       semaphore.acquireUninterruptibly();
@@ -134,13 +134,6 @@ public abstract class OpenGlViewBase extends SurfaceView
       frameAvailable = true;
       sync.notifyAll();
     }
-  }
-
-  @Override
-  public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-    Log.i(TAG, "size: " + width + "x" + height);
-    this.previewWidth = width;
-    this.previewHeight = height;
   }
 
   @Override

@@ -1,10 +1,15 @@
 package com.pedro.encoder.input.audio;
 
 import android.media.AudioFormat;
+import android.media.AudioPlaybackCaptureConfiguration;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
+import android.media.projection.MediaProjection;
+import android.os.Build;
+import android.os.Handler;
+import android.os.HandlerThread;
 import android.util.Log;
-import com.pedro.encoder.audio.DataTaken;
+import com.pedro.encoder.Frame;
 import java.nio.ByteBuffer;
 
 /**
@@ -15,11 +20,11 @@ public class MicrophoneManager {
 
   private final String TAG = "MicrophoneManager";
   private static final int BUFFER_SIZE = 4096;
-  private AudioRecord audioRecord;
+  protected AudioRecord audioRecord;
   private GetMicrophoneData getMicrophoneData;
   private ByteBuffer pcmBuffer = ByteBuffer.allocateDirect(BUFFER_SIZE);
   private byte[] pcmBufferMuted = new byte[BUFFER_SIZE];
-  private boolean running = false;
+  protected boolean running = false;
   private boolean created = false;
 
   //default parameters for microphone
@@ -28,7 +33,7 @@ public class MicrophoneManager {
   private int channel = AudioFormat.CHANNEL_IN_STEREO;
   private boolean muted = false;
   private AudioPostProcessEffect audioPostProcessEffect;
-  private Thread thread;
+  HandlerThread handlerThread;
 
   public MicrophoneManager(GetMicrophoneData getMicrophoneData) {
     this.getMicrophoneData = getMicrophoneData;
@@ -43,15 +48,24 @@ public class MicrophoneManager {
   }
 
   /**
-   * Create audio record with params
+   * Create audio record with params and default audio source
    */
   public void createMicrophone(int sampleRate, boolean isStereo, boolean echoCanceler,
       boolean noiseSuppressor) {
+    createMicrophone(MediaRecorder.AudioSource.DEFAULT, sampleRate, isStereo, echoCanceler, noiseSuppressor);
+  }
+
+  /**
+   * Create audio record with params and selected audio source
+   * @param audioSource - the recording source. See {@link MediaRecorder.AudioSource} for the recording source definitions.
+   */
+  public void createMicrophone(int audioSource, int sampleRate, boolean isStereo, boolean echoCanceler,
+                               boolean noiseSuppressor) {
     this.sampleRate = sampleRate;
     if (!isStereo) channel = AudioFormat.CHANNEL_IN_MONO;
     audioRecord =
-        new AudioRecord(MediaRecorder.AudioSource.DEFAULT, sampleRate, channel, audioFormat,
-            getPcmBufferSize());
+            new AudioRecord(audioSource, sampleRate, channel, audioFormat,
+                    getPcmBufferSize());
     audioPostProcessEffect = new AudioPostProcessEffect(audioRecord.getAudioSessionId());
     if (echoCanceler) audioPostProcessEffect.enableEchoCanceler();
     if (noiseSuppressor) audioPostProcessEffect.enableNoiseSuppressor();
@@ -61,24 +75,58 @@ public class MicrophoneManager {
   }
 
   /**
+   * Create audio record with params and AudioPlaybackCaptureConfig used for capturing internal audio
+   * Notice that you should granted {@link android.Manifest.permission#RECORD_AUDIO} before calling this!
+   *
+   * @param config - AudioPlaybackCaptureConfiguration received from {@link android.media.projection.MediaProjection}
+   *
+   * @see AudioPlaybackCaptureConfiguration.Builder#Builder(MediaProjection)
+   * @see "https://developer.android.com/guide/topics/media/playback-capture"
+   * @see "https://medium.com/@debuggingisfun/android-10-audio-capture-77dd8e9070f9"
+   */
+  public void createInternalMicrophone(AudioPlaybackCaptureConfiguration config, int sampleRate, boolean isStereo) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      this.sampleRate = sampleRate;
+      if (!isStereo) channel = AudioFormat.CHANNEL_IN_MONO;
+      audioRecord = new AudioRecord.Builder()
+              .setAudioPlaybackCaptureConfig(config)
+              .setAudioFormat(new AudioFormat.Builder()
+                      .setEncoding(audioFormat)
+                      .setSampleRate(sampleRate)
+                      .setChannelMask(channel)
+                      .build())
+              .setBufferSizeInBytes(getPcmBufferSize())
+              .build();
+
+      audioPostProcessEffect = new AudioPostProcessEffect(audioRecord.getAudioSessionId());
+      String chl = (isStereo) ? "Stereo" : "Mono";
+      Log.i(TAG, "Internal microphone created, " + sampleRate + "hz, " + chl);
+      created = true;
+    } else createMicrophone(sampleRate, isStereo, false, false);
+  }
+
+
+  /**
    * Start record and get data
    */
   public synchronized void start() {
     init();
-    thread = new Thread(new Runnable() {
+    handlerThread = new HandlerThread(TAG);
+    handlerThread.start();
+    Handler handler = new Handler(handlerThread.getLooper());
+    handler.post(new Runnable() {
       @Override
       public void run() {
-        while (running && !Thread.interrupted()) {
-          DataTaken dataTaken = read();
-          if (dataTaken != null) {
-            getMicrophoneData.inputPCMData(dataTaken.getPcmBuffer(), dataTaken.getOffset(), dataTaken.getSize());
+        while (running) {
+          Frame frame = read();
+          if (frame != null) {
+            getMicrophoneData.inputPCMData(frame);
           } else {
             running = false;
           }
         }
       }
     });
-    thread.start();
   }
 
   private void init() {
@@ -107,13 +155,14 @@ public class MicrophoneManager {
   /**
    * @return Object with size and PCM buffer data
    */
-  private DataTaken read() {
+  private Frame read() {
     pcmBuffer.rewind();
     int size = audioRecord.read(pcmBuffer, pcmBuffer.remaining());
     if (size <= 0) {
       return null;
     }
-    return new DataTaken(muted ? pcmBufferMuted : pcmBuffer.array(), muted ? 0 : pcmBuffer.arrayOffset(), size);
+    return new Frame(muted ? pcmBufferMuted : pcmBuffer.array(),
+        muted ? 0 : pcmBuffer.arrayOffset(), size);
   }
 
   /**
@@ -122,14 +171,12 @@ public class MicrophoneManager {
   public synchronized void stop() {
     running = false;
     created = false;
-    if (thread != null) {
-      thread.interrupt();
-      try {
-        thread.join(100);
-      } catch (InterruptedException e) {
-        thread.interrupt();
+    if (handlerThread != null) {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+        handlerThread.quitSafely();
+      } else {
+        handlerThread.quit();
       }
-      thread = null;
     }
     if (audioRecord != null) {
       audioRecord.setRecordPositionUpdateListener(null);

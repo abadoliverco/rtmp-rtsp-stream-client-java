@@ -2,6 +2,7 @@ package com.pedro.rtplibrary.base;
 
 import android.media.MediaCodec;
 import android.media.MediaFormat;
+import com.pedro.encoder.Frame;
 import com.pedro.encoder.audio.AudioEncoder;
 import com.pedro.encoder.audio.GetAacData;
 import com.pedro.encoder.input.audio.GetMicrophoneData;
@@ -85,16 +86,31 @@ public abstract class OnlyAudioBase implements GetAacData, GetMicrophoneData {
     startStreamRtp(url);
   }
 
+  protected abstract void stopStreamRtp();
+
+  public boolean reTry(long delay, String reason) {
+    boolean result = shouldRetry(reason);
+    if (result) {
+      reTry(delay);
+    }
+    return result;
+  }
+
+  /**
+   * Replace with reTry(long delay, String reason);
+   */
+  @Deprecated
   public void reTry(long delay) {
     reConnect(delay);
   }
 
-  protected abstract void stopStreamRtp();
-
-  //re connection
-  public abstract void setReTries(int reTries);
-
+  /**
+   * Replace with reTry(long delay, String reason);
+   */
+  @Deprecated
   public abstract boolean shouldRetry(String reason);
+
+  public abstract void setReTries(int reTries);
 
   protected abstract void reConnect(long delay);
 
@@ -169,8 +185,8 @@ public abstract class OnlyAudioBase implements GetAacData, GetMicrophoneData {
   }
 
   @Override
-  public void inputPCMData(byte[] buffer, int offset, int size) {
-    audioEncoder.inputPCMData(buffer, offset, size);
+  public void inputPCMData(Frame frame) {
+    audioEncoder.inputPCMData(frame);
   }
 
   @Override

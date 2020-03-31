@@ -14,6 +14,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import com.pedro.encoder.input.video.CameraOpenException;
 import com.pedro.rtplibrary.rtsp.RtspCamera1;
 import com.pedro.rtpstreamer.R;
+import com.pedro.rtsp.rtsp.VideoCodec;
 import com.pedro.rtsp.utils.ConnectCheckerRtsp;
 import java.io.File;
 import java.io.IOException;
@@ -72,10 +73,9 @@ public class ExampleRtspActivity extends AppCompatActivity
     runOnUiThread(new Runnable() {
       @Override
       public void run() {
-        if (rtspCamera1.shouldRetry(reason)) {
+        if (rtspCamera1.reTry(5000, reason)) {
           Toast.makeText(ExampleRtspActivity.this, "Retry", Toast.LENGTH_SHORT)
               .show();
-          rtspCamera1.reTry(5000);  //Wait 5s and retry connect stream
         } else {
           Toast.makeText(ExampleRtspActivity.this, "Connection failed. " + reason, Toast.LENGTH_SHORT)
               .show();

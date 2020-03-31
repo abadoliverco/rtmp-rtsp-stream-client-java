@@ -20,10 +20,9 @@ https://github.com/pedroSG94/rtmp-rtsp-stream-client-java/wiki
 <uses-permission android:name="android.permission.RECORD_AUDIO" />
 <uses-permission android:name="android.permission.CAMERA" />
 <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
-<!--some devices need it-->
-<uses-feature android:name="android.hardware.camera" />
-<uses-feature android:name="android.hardware.camera2.full" />
-<uses-feature android:name="android.hardware.camera2.autofocus" />
+<!--Optional for play store-->
+<uses-feature android:name="android.hardware.camera" android:required="false" />
+<uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
 ```
 
 ## Compile
@@ -37,7 +36,7 @@ allprojects {
   }
 }
 dependencies {
-  implementation 'com.github.pedroSG94.rtmp-rtsp-stream-client-java:rtplibrary:1.6.7'
+  implementation 'com.github.pedroSG94.rtmp-rtsp-stream-client-java:rtplibrary:1.7.8'
 }
 
 ```
@@ -49,7 +48,7 @@ dependencies {
 - [x] Encoder type buffer to buffer.
 - [x] Encoder type surface to buffer.
 - [x] RTMP/RTSP auth.
-- [x] Audio mode suppressor.
+- [x] Audio noise suppressor.
 - [x] Audio echo cancellation.
 - [x] Disable/Enable video and audio while streaming.
 - [x] Switch camera while streaming.
@@ -65,6 +64,14 @@ dependencies {
 - [X] OpenGL real time filters. [More info](https://github.com/pedroSG94/rtmp-rtsp-stream-client-java/wiki/Real-time-filters)
 - [X] RTMPS and RTSPS
 - [X] RTSP H265 support (Waiting FLV official packetization to add RTMP support).
+
+## Other related projects:
+
+https://github.com/pedroSG94/RTSP-Server
+
+https://github.com/pedroSG94/AndroidReStreamer
+
+https://github.com/pedroSG94/Stream-USB-test
 
 ## Use example:
 

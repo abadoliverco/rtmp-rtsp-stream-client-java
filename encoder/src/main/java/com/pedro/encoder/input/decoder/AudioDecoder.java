@@ -4,6 +4,7 @@ import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import android.util.Log;
+import com.pedro.encoder.Frame;
 import com.pedro.encoder.input.audio.GetMicrophoneData;
 import com.pedro.encoder.utils.PCMUtil;
 import java.io.IOException;
@@ -28,8 +29,8 @@ public class AudioDecoder {
   private String mime = "";
   private int sampleRate;
   private boolean isStereo;
-  private int channels = 2;
-  private int size = 4096;
+  private int channels = 1;
+  private int size = 2048;
   private byte[] pcmBuffer = new byte[size];
   private byte[] pcmBufferMuted = new byte[11];
   private static boolean loopMode = false;
@@ -63,7 +64,7 @@ public class AudioDecoder {
       isStereo = channels >= 2;
       sampleRate = audioFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE);
       duration = audioFormat.getLong(MediaFormat.KEY_DURATION);
-      if (channels > 2) {
+      if (channels >= 2) {
         pcmBuffer = new byte[2048 * channels];
       }
       return true;
@@ -92,7 +93,11 @@ public class AudioDecoder {
     thread = new Thread(new Runnable() {
       @Override
       public void run() {
-        decodeAudio();
+        try {
+          decodeAudio();
+        } catch (IllegalStateException e) {
+          Log.i(TAG, "Decoding error", e);
+        }
       }
     });
     thread.start();
@@ -110,9 +115,11 @@ public class AudioDecoder {
       }
       thread = null;
     }
-    if (audioDecoder != null) {
+    try {
       audioDecoder.stop();
       audioDecoder.release();
+      audioDecoder = null;
+    } catch (IllegalStateException | NullPointerException e) {
       audioDecoder = null;
     }
     if (audioExtractor != null) {
@@ -121,7 +128,7 @@ public class AudioDecoder {
     }
   }
 
-  private void decodeAudio() {
+  private void decodeAudio() throws IllegalStateException {
     ByteBuffer[] inputBuffers = audioDecoder.getInputBuffers();
     ByteBuffer[] outputBuffers = audioDecoder.getOutputBuffers();
     startMs = System.currentTimeMillis();
@@ -152,22 +159,26 @@ public class AudioDecoder {
               try {
                 Thread.sleep(10);
               } catch (InterruptedException e) {
-                thread.interrupt();
+                if (thread != null) thread.interrupt();
                 return;
               }
             }
             ByteBuffer outBuffer = outputBuffers[outIndex];
             //This buffer is PCM data
             if (muted) {
-              outBuffer.get(pcmBufferMuted, 0, pcmBufferMuted.length);
-              getMicrophoneData.inputPCMData(pcmBufferMuted, 0, pcmBufferMuted.length);
+              outBuffer.get(pcmBufferMuted, 0,
+                  outBuffer.remaining() <= pcmBufferMuted.length ? outBuffer.remaining()
+                      : pcmBufferMuted.length);
+              getMicrophoneData.inputPCMData(new Frame(pcmBufferMuted, 0, pcmBufferMuted.length));
             } else {
-              outBuffer.get(pcmBuffer, 0, pcmBuffer.length);
+              outBuffer.get(pcmBuffer, 0,
+                  outBuffer.remaining() <= pcmBuffer.length ? outBuffer.remaining()
+                      : pcmBuffer.length);
               if (channels > 2) { //downgrade to stereo
                 byte[] bufferStereo = PCMUtil.pcmToStereo(pcmBuffer, channels);
-                getMicrophoneData.inputPCMData(bufferStereo, 0, bufferStereo.length);
+                getMicrophoneData.inputPCMData(new Frame(bufferStereo, 0, bufferStereo.length));
               } else {
-                getMicrophoneData.inputPCMData(pcmBuffer, 0, pcmBuffer.length);
+                getMicrophoneData.inputPCMData(new Frame(pcmBuffer, 0, pcmBuffer.length));
               }
             }
             audioDecoder.releaseOutputBuffer(outIndex, false);
