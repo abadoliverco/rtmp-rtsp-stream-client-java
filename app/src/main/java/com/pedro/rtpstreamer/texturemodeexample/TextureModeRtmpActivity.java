@@ -226,7 +226,12 @@ public class TextureModeRtmpActivity extends AppCompatActivity
     }
 
     @Override
-    public void onFrameDiscarded() {
+    public void onSendingPacketsFailed() {
+
+    }
+
+    @Override
+    public void onSendingPackets() {
 
     }
 }

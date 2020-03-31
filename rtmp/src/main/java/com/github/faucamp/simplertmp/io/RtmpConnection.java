@@ -467,6 +467,7 @@ public class RtmpConnection implements RtmpPublisher {
             .setAbsoluteTimestamp((int) chunkStreamInfo.markAbsoluteTimestampTx());
       }
       rtmpPacket.writeTo(outputStream, rtmpSessionInfo.getTxChunkSize(), chunkStreamInfo);
+      connectCheckerRtmp.onSendingPackets();
       Log.d(TAG,
           "wrote packet: " + rtmpPacket + ", size: " + rtmpPacket.getHeader().getPacketLength());
       if (rtmpPacket instanceof Command) {

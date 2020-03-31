@@ -20,5 +20,7 @@ public interface ConnectCheckerRtmp {
 
   void onAuthSuccessRtmp();
 
-  void onFrameDiscarded();
+  void onSendingPacketsFailed();
+
+  void onSendingPackets();
 }

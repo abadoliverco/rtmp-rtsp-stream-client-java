@@ -483,7 +483,12 @@ public class OpenGlRtmpActivity extends AppCompatActivity
     }
 
     @Override
-    public void onFrameDiscarded() {
+    public void onSendingPacketsFailed() {
+
+    }
+
+    @Override
+    public void onSendingPackets() {
 
     }
 }
