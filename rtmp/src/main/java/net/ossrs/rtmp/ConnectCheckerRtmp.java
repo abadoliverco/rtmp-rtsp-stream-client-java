@@ -19,4 +19,6 @@ public interface ConnectCheckerRtmp {
   void onAuthErrorRtmp();
 
   void onAuthSuccessRtmp();
+
+  void onFrameDiscarded();
 }

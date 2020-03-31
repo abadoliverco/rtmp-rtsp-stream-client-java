@@ -131,6 +131,10 @@ class RtpService : Service() {
       override fun onAuthSuccessRtp() {
         showNotification("Stream auth success")
       }
+
+      override fun onFrameDiscarded() {
+
+      }
     }
 
     private fun showNotification(text: String) {

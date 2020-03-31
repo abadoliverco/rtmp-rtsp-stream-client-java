@@ -1027,6 +1027,7 @@ public class SrsFlvMuxer {
         mFlvTagCache.add(frame);
       } catch (IllegalStateException e) {
         Log.i(TAG, "frame discarded");
+        connectCheckerRtmp.onFrameDiscarded();
         if (frame.is_video()) {
           mDroppedVideoFrames++;
         } else {
