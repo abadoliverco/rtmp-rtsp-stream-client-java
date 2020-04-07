@@ -129,6 +129,8 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
             }
           } catch (CameraAccessException | NullPointerException e) {
             Log.e(TAG, "Error", e);
+          } catch (IllegalStateException e) {
+            reOpenCamera(cameraId != -1 ? cameraId : 0);
           }
         }
 
@@ -140,6 +142,8 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
       }, null);
     } catch (CameraAccessException e) {
       Log.e(TAG, "Error", e);
+    } catch (IllegalStateException e) {
+      reOpenCamera(cameraId != -1 ? cameraId : 0);
     }
   }
 
@@ -273,7 +277,7 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
           cameraCaptureSession.setRepeatingRequest(builderInputSurface.build(),
               faceDetectionEnabled ? cb : null, null);
           lanternEnable = true;
-        } catch (CameraAccessException | IllegalStateException e) {
+        } catch (Exception e) {
           Log.e(TAG, "Error", e);
         }
       }
@@ -295,7 +299,7 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
           cameraCaptureSession.setRepeatingRequest(builderInputSurface.build(),
               faceDetectionEnabled ? cb : null, null);
           lanternEnable = false;
-        } catch (CameraAccessException | IllegalStateException e) {
+        } catch (Exception e) {
           Log.e(TAG, "Error", e);
         }
       }
@@ -393,8 +397,12 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
   }
 
   public void switchCamera() {
+    int cameraId = Integer.parseInt(cameraDevice.getId()) == 1 ? 0 : 1;
+    reOpenCamera(cameraId);
+  }
+
+  private void reOpenCamera(int cameraId) {
     if (cameraDevice != null) {
-      int cameraId = Integer.parseInt(cameraDevice.getId()) == 1 ? 0 : 1;
       closeCamera(false);
       if (textureView != null) {
         prepareCamera(textureView, surfaceEncoder);
