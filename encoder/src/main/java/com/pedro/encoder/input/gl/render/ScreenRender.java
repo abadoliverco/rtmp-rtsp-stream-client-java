@@ -6,8 +6,9 @@ import android.opengl.Matrix;
 import android.os.Build;
 import androidx.annotation.RequiresApi;
 import com.pedro.encoder.R;
+import com.pedro.encoder.input.video.CameraHelper;
 import com.pedro.encoder.utils.gl.GlUtil;
-import com.pedro.encoder.utils.gl.PreviewSizeCalculator;
+import com.pedro.encoder.utils.gl.SizeCalculator;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -47,6 +48,7 @@ public class ScreenRender {
 
   private int streamWidth;
   private int streamHeight;
+  private boolean isPortrait;
 
   public ScreenRender() {
     squareVertex =
@@ -59,6 +61,7 @@ public class ScreenRender {
   }
 
   public void initGl(Context context) {
+    isPortrait = CameraHelper.isPortrait(context);
     GlUtil.checkGlError("initGl start");
     String vertexShader = GlUtil.getStringFromRaw(context, R.raw.simple_vertex);
     String fragmentShader = GlUtil.getStringFromRaw(context, R.raw.fxaa);
@@ -74,10 +77,12 @@ public class ScreenRender {
     GlUtil.checkGlError("initGl end");
   }
 
-  public void draw(int width, int height, boolean keepAspectRatio, int mode) {
+  public void draw(int width, int height, boolean keepAspectRatio, int mode, int rotation,
+      boolean isPreview) {
     GlUtil.checkGlError("drawScreen start");
 
-    PreviewSizeCalculator.calculateViewPort(keepAspectRatio, mode, width, height, streamWidth,
+    SizeCalculator.updateMatrix(rotation, width, height, isPreview, isPortrait, MVPMatrix);
+    SizeCalculator.calculateViewPort(keepAspectRatio, mode, width, height, streamWidth,
         streamHeight);
 
     GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f);

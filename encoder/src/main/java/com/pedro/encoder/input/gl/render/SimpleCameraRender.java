@@ -11,7 +11,7 @@ import android.view.Surface;
 import com.pedro.encoder.R;
 import com.pedro.encoder.input.video.CameraHelper;
 import com.pedro.encoder.utils.gl.GlUtil;
-import com.pedro.encoder.utils.gl.PreviewSizeCalculator;
+import com.pedro.encoder.utils.gl.SizeCalculator;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
@@ -49,6 +49,7 @@ public class SimpleCameraRender {
   private Surface surface;
   private int streamWidth;
   private int streamHeight;
+  private boolean isPortrait;
 
   public SimpleCameraRender() {
     Matrix.setIdentityM(MVPMatrix, 0);
@@ -84,11 +85,13 @@ public class SimpleCameraRender {
     surfaceTexture.updateTexImage();
   }
 
-  public void drawFrame(int width, int height, boolean keepAspectRatio, int mode) {
+  public void drawFrame(int width, int height, boolean keepAspectRatio, int mode, int rotation,
+      boolean isPreview) {
     GlUtil.checkGlError("drawFrame start");
     surfaceTexture.getTransformMatrix(STMatrix);
 
-    PreviewSizeCalculator.calculateViewPort(keepAspectRatio, mode, width, height, streamWidth,
+    SizeCalculator.updateMatrix(rotation, width, height, isPreview, isPortrait, MVPMatrix);
+    SizeCalculator.calculateViewPort(keepAspectRatio, mode, width, height, streamWidth,
         streamHeight);
 
     GLES20.glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -120,6 +123,7 @@ public class SimpleCameraRender {
    * Initializes GL state.  Call this after the EGL surface has been created and made current.
    */
   public void initGl(Context context, int streamWidth, int streamHeight) {
+    isPortrait = CameraHelper.isPortrait(context);
     this.streamWidth = streamWidth;
     this.streamHeight = streamHeight;
     GlUtil.checkGlError("initGl start");
