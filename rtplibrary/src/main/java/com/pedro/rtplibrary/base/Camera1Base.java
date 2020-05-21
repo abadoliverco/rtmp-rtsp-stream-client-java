@@ -13,6 +13,7 @@ import androidx.annotation.RequiresApi;
 import com.pedro.encoder.Frame;
 import com.pedro.encoder.audio.AudioEncoder;
 import com.pedro.encoder.audio.GetAacData;
+import com.pedro.encoder.input.audio.CustomAudioEffect;
 import com.pedro.encoder.input.audio.GetMicrophoneData;
 import com.pedro.encoder.input.audio.MicrophoneManager;
 import com.pedro.encoder.input.video.Camera1ApiManager;
@@ -111,6 +112,13 @@ public abstract class Camera1Base
   }
 
   /**
+   * Set an audio effect modifying microphone's PCM buffer.
+   */
+  public void setCustomAudioEffect(CustomAudioEffect customAudioEffect) {
+    microphoneManager.setCustomAudioEffect(customAudioEffect);
+  }
+
+  /**
    * @param callback get fps while record or stream
    */
   public void setFpsListener(FpsListener.Callback callback) {
@@ -169,7 +177,7 @@ public abstract class Camera1Base
    * @param width resolution in px.
    * @param height resolution in px.
    * @param fps frames per second of the stream.
-   * @param bitrate H264 in kb.
+   * @param bitrate H264 in bps.
    * @param hardwareRotation true if you want rotate using encoder, false if you want rotate with
    * software if you are using a SurfaceView or TextureView or with OpenGl if you are using
    * OpenGlView.
@@ -657,9 +665,9 @@ public abstract class Camera1Base
   }
 
   /**
-   * Set video bitrate of H264 in kb while stream.
+   * Set video bitrate of H264 in bits per second while stream.
    *
-   * @param bitrate H264 in kb.
+   * @param bitrate H264 in bits per second.
    */
   @RequiresApi(api = Build.VERSION_CODES.KITKAT)
   public void setVideoBitrateOnFly(int bitrate) {

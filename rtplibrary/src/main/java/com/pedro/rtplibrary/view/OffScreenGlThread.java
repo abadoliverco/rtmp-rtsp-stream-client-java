@@ -38,9 +38,9 @@ public class OffScreenGlThread
   private final Object sync = new Object();
   private int encoderWidth, encoderHeight;
   private boolean loadAA = false;
+  private int streamRotation;
 
   private boolean AAEnabled = false;
-  private int fps = 30;
   private FpsLimiter fpsLimiter = new FpsLimiter();
   //used with camera
   private TakePhotoCallback takePhotoCallback;
@@ -121,6 +121,11 @@ public class OffScreenGlThread
   }
 
   @Override
+  public void setStreamRotation(int rotation) {
+    streamRotation = rotation;
+  }
+
+  @Override
   public boolean isAAEnabled() {
     return textureManager != null && textureManager.isAAEnabled();
   }
@@ -173,19 +178,20 @@ public class OffScreenGlThread
           surfaceManager.makeCurrent();
           textureManager.updateFrame();
           textureManager.drawOffScreen();
-          textureManager.drawScreen(encoderWidth, encoderHeight, false);
+          textureManager.drawScreen(encoderWidth, encoderHeight, false, 0, 0, true);
+          if (takePhotoCallback != null) {
+            takePhotoCallback.onTakePhoto(
+                GlUtil.getBitmap(encoderWidth, encoderHeight, encoderWidth, encoderHeight));
+            takePhotoCallback = null;
+          }
           surfaceManager.swapBuffer();
 
           synchronized (sync) {
             if (surfaceManagerEncoder != null && !fpsLimiter.limitFPS()) {
               surfaceManagerEncoder.makeCurrent();
-              textureManager.drawScreen(encoderWidth, encoderHeight, false);
+              textureManager.drawScreen(encoderWidth, encoderHeight, false, 0, streamRotation,
+                  false);
               surfaceManagerEncoder.swapBuffer();
-            }
-            if (takePhotoCallback != null) {
-              takePhotoCallback.onTakePhoto(
-                  GlUtil.getBitmap(encoderWidth, encoderHeight, encoderWidth, encoderHeight));
-              takePhotoCallback = null;
             }
           }
           if (!filterQueue.isEmpty()) {

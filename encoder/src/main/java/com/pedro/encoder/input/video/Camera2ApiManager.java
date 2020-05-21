@@ -129,6 +129,8 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
             }
           } catch (CameraAccessException | NullPointerException e) {
             Log.e(TAG, "Error", e);
+          } catch (IllegalStateException e) {
+            reOpenCamera(cameraId != -1 ? cameraId : 0);
           }
         }
 
@@ -140,6 +142,8 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
       }, null);
     } catch (CameraAccessException e) {
       Log.e(TAG, "Error", e);
+    } catch (IllegalStateException e) {
+      reOpenCamera(cameraId != -1 ? cameraId : 0);
     }
   }
 
@@ -234,18 +238,21 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
   /**
    * Select camera facing
    *
-   * @param cameraFacing - CameraCharacteristics.LENS_FACING_FRONT, CameraCharacteristics.LENS_FACING_BACK,
+   * @param selectedCameraFacing - CameraCharacteristics.LENS_FACING_FRONT, CameraCharacteristics.LENS_FACING_BACK,
    * CameraCharacteristics.LENS_FACING_EXTERNAL
    */
-  public void openCameraFacing(CameraHelper.Facing cameraFacing) {
-    int facing = cameraFacing == CameraHelper.Facing.BACK ? CameraMetadata.LENS_FACING_BACK
-        : CameraMetadata.LENS_FACING_FRONT;
+  public void openCameraFacing(CameraHelper.Facing selectedCameraFacing) {
+    int selectedFacing = selectedCameraFacing == CameraHelper.Facing.BACK ? CameraMetadata.LENS_FACING_BACK
+            : CameraMetadata.LENS_FACING_FRONT;
     try {
-      cameraCharacteristics = cameraManager.getCameraCharacteristics("0");
-      if (cameraCharacteristics.get(CameraCharacteristics.LENS_FACING) == facing) {
-        openCameraId(0);
-      } else {
-        openCameraId(cameraManager.getCameraIdList().length - 1);
+      for (String cameraId : cameraManager.getCameraIdList()) {
+        CameraCharacteristics cameraCharacteristic = cameraManager.getCameraCharacteristics(cameraId);
+        Integer cameraFacing = cameraCharacteristic.get(CameraCharacteristics.LENS_FACING);
+        if (cameraFacing != null && cameraFacing == selectedFacing) {
+          this.cameraCharacteristics = cameraCharacteristic;
+          openCameraId(Integer.valueOf(cameraId));
+          break;
+        }
       }
     } catch (CameraAccessException e) {
       Log.e(TAG, "Error", e);
@@ -273,7 +280,7 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
           cameraCaptureSession.setRepeatingRequest(builderInputSurface.build(),
               faceDetectionEnabled ? cb : null, null);
           lanternEnable = true;
-        } catch (CameraAccessException | IllegalStateException e) {
+        } catch (Exception e) {
           Log.e(TAG, "Error", e);
         }
       }
@@ -295,7 +302,7 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
           cameraCaptureSession.setRepeatingRequest(builderInputSurface.build(),
               faceDetectionEnabled ? cb : null, null);
           lanternEnable = false;
-        } catch (CameraAccessException | IllegalStateException e) {
+        } catch (Exception e) {
           Log.e(TAG, "Error", e);
         }
       }
@@ -393,8 +400,12 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
   }
 
   public void switchCamera() {
+    int cameraId = cameraDevice == null ? 0 : Integer.parseInt(cameraDevice.getId()) == 1 ? 0 : 1;
+    reOpenCamera(cameraId);
+  }
+
+  private void reOpenCamera(int cameraId) {
     if (cameraDevice != null) {
-      int cameraId = Integer.parseInt(cameraDevice.getId()) == 1 ? 0 : 1;
       closeCamera(false);
       if (textureView != null) {
         prepareCamera(textureView, surfaceEncoder);

@@ -16,6 +16,7 @@ import androidx.annotation.RequiresApi;
 import com.pedro.encoder.Frame;
 import com.pedro.encoder.audio.AudioEncoder;
 import com.pedro.encoder.audio.GetAacData;
+import com.pedro.encoder.input.audio.CustomAudioEffect;
 import com.pedro.encoder.input.audio.GetMicrophoneData;
 import com.pedro.encoder.input.audio.MicrophoneManager;
 import com.pedro.encoder.utils.CodecUtil;
@@ -76,6 +77,13 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
   }
 
   /**
+   * Set an audio effect modifying microphone's PCM buffer.
+   */
+  public void setCustomAudioEffect(CustomAudioEffect customAudioEffect) {
+    microphoneManager.setCustomAudioEffect(customAudioEffect);
+  }
+
+  /**
    * @param callback get fps while record or stream
    */
   public void setFpsListener(FpsListener.Callback callback) {
@@ -96,7 +104,7 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
    * @param width resolution in px.
    * @param height resolution in px.
    * @param fps frames per second of the stream.
-   * @param bitrate H264 in kb.
+   * @param bitrate H264 in bps.
    * @param rotation could be 90, 180, 270 or 0 (Normally 0 if you are streaming in landscape or 90
    * if you are streaming in Portrait). This only affect to stream result. This work rotating with
    * encoder.
@@ -434,9 +442,9 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
   }
 
   /**
-   * Set video bitrate of H264 in kb while stream.
+   * Set video bitrate of H264 in bits per second while stream.
    *
-   * @param bitrate H264 in kb.
+   * @param bitrate H264 in bits per second.
    */
   public void setVideoBitrateOnFly(int bitrate) {
     videoEncoder.setVideoBitrateOnFly(bitrate);

@@ -56,7 +56,6 @@ public class RtmpConnection implements RtmpPublisher {
   private String tcUrl;
   private String pageUrl;
   private Socket socket;
-  private String socketExceptionCause = "";
   private RtmpSessionInfo rtmpSessionInfo;
   private RtmpDecoder rtmpDecoder;
   private BufferedInputStream inputStream;
@@ -409,7 +408,6 @@ public class RtmpConnection implements RtmpPublisher {
     publishType = null;
     currentStreamId = 0;
     transactionIdCounter = 0;
-    socketExceptionCause = "";
     socket = null;
     rtmpSessionInfo = null;
     user = null;
@@ -475,17 +473,11 @@ public class RtmpConnection implements RtmpPublisher {
             ((Command) rtmpPacket).getCommandName());
       }
       outputStream.flush();
-    } catch (SocketException se) {
-      // Since there are still remaining AV frame in the cache, we set a flag to guarantee the
-      // socket exception only issue one time.
-      if (!socketExceptionCause.contentEquals(se.getMessage())) {
-        socketExceptionCause = se.getMessage();
-        connectCheckerRtmp.onConnectionFailedRtmp("Error send packet: " + se.getMessage());
-        Log.e(TAG, "Caught SocketException during write loop, shutting down: " + se.getMessage());
-      }
+    } catch (SocketException ignored) {
     } catch (IOException ioe) {
       connectCheckerRtmp.onConnectionFailedRtmp("Error send packet: " + ioe.getMessage());
       Log.e(TAG, "Caught IOException during write loop, shutting down: " + ioe.getMessage());
+      Thread.currentThread().interrupt();
     }
   }
 
@@ -529,15 +521,14 @@ public class RtmpConnection implements RtmpPublisher {
               rtmpSessionInfo.setAcknowledgmentWindowSize(size);
               break;
             case SET_PEER_BANDWIDTH:
-              SetPeerBandwidth bw = (SetPeerBandwidth) rtmpPacket;
-              rtmpSessionInfo.setAcknowledgmentWindowSize(bw.getAcknowledgementWindowSize());
+              rtmpSessionInfo.setAcknowledgmentWindowSize(socket.getSendBufferSize());
               int acknowledgementWindowsize = rtmpSessionInfo.getAcknowledgementWindowSize();
               ChunkStreamInfo chunkStreamInfo =
                   rtmpSessionInfo.getChunkStreamInfo(ChunkStreamInfo.RTMP_CID_PROTOCOL_CONTROL);
               Log.d(TAG, "handleRxPacketLoop(): Send acknowledgement window size: "
                   + acknowledgementWindowsize);
               sendRtmpPacket(new WindowAckSize(acknowledgementWindowsize, chunkStreamInfo));
-              // Set socket option
+              // Set socket option. This line could produce bps calculation problems.
               socket.setSendBufferSize(acknowledgementWindowsize);
               break;
             case COMMAND_AMF0:
@@ -555,6 +546,7 @@ public class RtmpConnection implements RtmpPublisher {
         connectCheckerRtmp.onConnectionFailedRtmp("Error reading packet: " + e.getMessage());
         Log.e(TAG, "Caught SocketException while reading/decoding packet, shutting down: "
             + e.getMessage());
+        Thread.currentThread().interrupt();
       }
     }
   }
