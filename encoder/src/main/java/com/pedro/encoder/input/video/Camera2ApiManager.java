@@ -67,6 +67,7 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
   private float zoomLevel = 1.0f;
   private boolean lanternEnable = false;
   private boolean running = false;
+  private CameraCallbacks cameraCallbacks;
 
   //Face detector
   public interface FaceDetectorCallback {
@@ -357,6 +358,10 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
     }
   }
 
+  public void setCameraCallbacks(CameraCallbacks cameraCallbacks) {
+    this.cameraCallbacks = cameraCallbacks;
+  }
+
   private void prepareFaceDetectionCallback() {
     try {
       cameraCaptureSession.stopRepeating();
@@ -394,6 +399,9 @@ public class Camera2ApiManager extends CameraDevice.StateCallback {
         running = true;
         isFrontCamera =
             (LENS_FACING_FRONT == cameraCharacteristics.get(CameraCharacteristics.LENS_FACING));
+        if (cameraCallbacks != null) {
+          cameraCallbacks.onCameraChanged(isFrontCamera);
+        }
       } catch (CameraAccessException | SecurityException e) {
         Log.e(TAG, "Error", e);
       }
