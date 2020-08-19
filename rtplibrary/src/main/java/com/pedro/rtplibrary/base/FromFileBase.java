@@ -1,6 +1,7 @@
 package com.pedro.rtplibrary.base;
 
 import android.content.Context;
+import android.graphics.SurfaceTexture;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
@@ -8,6 +9,7 @@ import android.media.MediaCodec;
 import android.media.MediaFormat;
 import android.os.Build;
 import android.util.Log;
+import android.view.Surface;
 import androidx.annotation.RequiresApi;
 import com.pedro.encoder.Frame;
 import com.pedro.encoder.audio.AudioEncoder;
@@ -52,7 +54,6 @@ public abstract class FromFileBase
   private AudioEncoder audioEncoder;
   private GlInterface glInterface;
   private boolean streaming = false;
-  private boolean videoEnabled = true;
   private RecordController recordController;
   private FpsListener fpsListener = new FpsListener();
 
@@ -104,6 +105,8 @@ public abstract class FromFileBase
     this.audioDecoderInterface = audioDecoderInterface;
     videoEncoder = new VideoEncoder(this);
     audioEncoder = new AudioEncoder(this);
+    videoDecoder = new VideoDecoder(videoDecoderInterface, this);
+    audioDecoder = new AudioDecoder(this, audioDecoderInterface, this);
     recordController = new RecordController();
   }
 
@@ -132,12 +135,15 @@ public abstract class FromFileBase
   public boolean prepareVideo(String filePath, int bitRate, int rotation, int avcProfile,
       int avcProfileLevel) throws IOException {
     videoPath = filePath;
-    videoDecoder = new VideoDecoder(videoDecoderInterface, this);
     if (!videoDecoder.initExtractor(filePath)) return false;
     boolean hardwareRotation = glInterface == null;
-    return videoEncoder.prepareVideoEncoder(videoDecoder.getWidth(), videoDecoder.getHeight(), 30,
-        bitRate, rotation, hardwareRotation, 2, FormatVideoEncoder.SURFACE, avcProfile,
-        avcProfileLevel);
+    boolean result =
+        videoEncoder.prepareVideoEncoder(videoDecoder.getWidth(), videoDecoder.getHeight(), 30,
+            bitRate, rotation, hardwareRotation, 2, FormatVideoEncoder.SURFACE, avcProfile,
+            avcProfileLevel);
+    if (!result) return false;
+    result = videoDecoder.prepareVideo(videoEncoder.getInputSurface());
+    return result;
   }
 
   public boolean prepareVideo(String filePath, int bitRate, int rotation) throws IOException {
@@ -157,7 +163,6 @@ public abstract class FromFileBase
    */
   public boolean prepareAudio(String filePath, int bitRate) throws IOException {
     audioPath = filePath;
-    audioDecoder = new AudioDecoder(this, audioDecoderInterface, this);
     if (!audioDecoder.initExtractor(filePath)) return false;
     boolean result = audioEncoder.prepareAudioEncoder(bitRate, audioDecoder.getSampleRate(),
         audioDecoder.isStereo(), 0);
@@ -173,6 +178,32 @@ public abstract class FromFileBase
               AudioFormat.ENCODING_PCM_16BIT, buffSize, AudioTrack.MODE_STREAM);
     }
     return result;
+  }
+
+  public boolean isAudioDeviceEnabled() {
+    return audioTrackPlayer != null
+        && audioTrackPlayer.getPlayState() == AudioTrack.PLAYSTATE_PLAYING;
+  }
+
+  public void playAudioDevice() {
+    if (isAudioDeviceEnabled()) {
+      audioTrackPlayer.stop();
+    }
+    int channel =
+        audioDecoder.isStereo() ? AudioFormat.CHANNEL_OUT_STEREO : AudioFormat.CHANNEL_OUT_MONO;
+    int buffSize = AudioTrack.getMinBufferSize(audioDecoder.getSampleRate(), channel,
+        AudioFormat.ENCODING_PCM_16BIT);
+    audioTrackPlayer =
+        new AudioTrack(AudioManager.STREAM_MUSIC, audioDecoder.getSampleRate(), channel,
+            AudioFormat.ENCODING_PCM_16BIT, buffSize, AudioTrack.MODE_STREAM);
+    audioTrackPlayer.play();
+  }
+
+  public void stopAudioDevice() {
+    if (isAudioDeviceEnabled()) {
+      audioTrackPlayer.stop();
+      audioTrackPlayer = null;
+    }
   }
 
   public boolean prepareAudio(String filePath) throws IOException {
@@ -248,6 +279,61 @@ public abstract class FromFileBase
     audioDecoder.start();
   }
 
+  @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+  public void replaceView(Context context) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
+      replaceGlInterface(new OffScreenGlThread(context));
+    }
+  }
+
+  @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+  public void replaceView(OpenGlView openGlView) {
+    replaceGlInterface(openGlView);
+  }
+
+  @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+  public void replaceView(LightOpenGlView lightOpenGlView) {
+    replaceGlInterface(lightOpenGlView);
+  }
+
+  /**
+   * Replace glInterface used on fly. Ignored if you use SurfaceView or TextureView
+   */
+  @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
+  private void replaceGlInterface(GlInterface glInterface) {
+    if (this.glInterface != null && Build.VERSION.SDK_INT >= 18) {
+      if (isStreaming() || isRecording()) {
+        try {
+          this.glInterface.removeMediaCodecSurface();
+          this.glInterface.stop();
+          this.glInterface = glInterface;
+          videoEncoder.reset();
+          if (!(glInterface instanceof OffScreenGlThread)) {
+            glInterface.init();
+          }
+          prepareGlView();
+          if (Build.VERSION.SDK_INT >= 23) {
+            videoDecoder.changeOutputSurface(this.glInterface.getSurface());
+          } else {
+            double time = videoDecoder.getTime();
+            videoDecoder.stop();
+            videoDecoder = new VideoDecoder(videoDecoderInterface, this);
+            if (!videoDecoder.initExtractor(videoPath)) {
+              throw new IOException("fail to reset video file");
+            }
+            videoDecoder.prepareVideo(this.glInterface.getSurface());
+            videoDecoder.start();
+            videoDecoder.moveTo(time);
+          }
+        } catch (IOException e) {
+          Log.e(TAG, "Error", e);
+        }
+      } else {
+        this.glInterface = glInterface;
+      }
+    }
+  }
+
   private void prepareGlView() {
     if (glInterface != null) {
       if (glInterface instanceof OffScreenGlThread) {
@@ -263,32 +349,21 @@ public abstract class FromFileBase
       glInterface.setRotation(0);
       glInterface.start();
       if (videoEncoder.getInputSurface() != null) {
+        videoDecoder.changeOutputSurface(this.glInterface.getSurface());
         glInterface.addMediaCodecSurface(videoEncoder.getInputSurface());
       }
-      videoDecoder.prepareVideo(glInterface.getSurface());
-    } else {
-      videoDecoder.prepareVideo(videoEncoder.getInputSurface());
     }
   }
 
   private void resetVideoEncoder() {
-    try {
-      if (glInterface != null) {
-        glInterface.removeMediaCodecSurface();
-        glInterface.stop();
-      }
-      double time = videoDecoder.getTime();
-      videoDecoder.stop();
-      videoDecoder = new VideoDecoder(videoDecoderInterface, this);
-      if (!videoDecoder.initExtractor(videoPath)) {
-        throw new IOException("fail to reset video file");
-      }
-      videoEncoder.reset();
-      prepareGlView();
-      videoDecoder.start();
-      videoDecoder.moveTo(time);
-    } catch (IOException e) {
-      Log.e(TAG, "Error", e);
+    if (glInterface != null) {
+      glInterface.removeMediaCodecSurface();
+    }
+    videoEncoder.reset();
+    if (glInterface != null) {
+      glInterface.addMediaCodecSurface(videoEncoder.getInputSurface());
+    } else {
+      videoDecoder.reset(videoEncoder.getInputSurface());
     }
   }
 
@@ -355,10 +430,9 @@ public abstract class FromFileBase
         glInterface.removeMediaCodecSurface();
         glInterface.stop();
       }
-      if (videoDecoder != null) videoDecoder.stop();
-      if (audioDecoder != null) audioDecoder.stop();
-      if (audioTrackPlayer != null
-          && audioTrackPlayer.getPlayState() == AudioTrack.PLAYSTATE_PLAYING) {
+      videoDecoder.stop();
+      audioDecoder.stop();
+      if (isAudioDeviceEnabled()) {
         audioTrackPlayer.stop();
       }
       audioTrackPlayer = null;
@@ -405,15 +479,6 @@ public abstract class FromFileBase
 
   public int getStreamHeight() {
     return videoEncoder.getHeight();
-  }
-
-  /**
-   * Get video camera state
-   *
-   * @return true if disabled, false if enabled
-   */
-  public boolean isVideoEnabled() {
-    return videoEnabled;
   }
 
   /**
