@@ -40,6 +40,7 @@ public class RtspSender implements VideoPacketCallback, AudioPacketCallback {
   private long droppedAudioFrames = 0;
   private long droppedVideoFrames = 0;
   private BitrateManager bitrateManager;
+  private boolean isEnableLogs = true;
 
   public RtspSender(ConnectCheckerRtsp connectCheckerRtsp) {
     this.connectCheckerRtsp = connectCheckerRtsp;
@@ -82,11 +83,11 @@ public class RtspSender implements VideoPacketCallback, AudioPacketCallback {
   }
 
   public void sendVideoFrame(ByteBuffer h264Buffer, MediaCodec.BufferInfo info) {
-    videoPacket.createAndSendPacket(h264Buffer, info);
+    if (videoPacket != null) videoPacket.createAndSendPacket(h264Buffer, info);
   }
 
   public void sendAudioFrame(ByteBuffer aacBuffer, MediaCodec.BufferInfo info) {
-    aacPacket.createAndSendPacket(aacBuffer, info);
+    if (aacPacket != null) aacPacket.createAndSendPacket(aacBuffer, info);
   }
 
   @Override
@@ -120,7 +121,7 @@ public class RtspSender implements VideoPacketCallback, AudioPacketCallback {
               Log.i(TAG, "Skipping iteration, frame null");
               continue;
             }
-            rtpSocket.sendFrame(rtpFrame);
+            rtpSocket.sendFrame(rtpFrame, isEnableLogs);
             //bytes to bits
             bitrateManager.calculateBitrate(rtpFrame.getLength() * 8);
             if (rtpFrame.isVideoFrame()) {
@@ -128,7 +129,7 @@ public class RtspSender implements VideoPacketCallback, AudioPacketCallback {
             } else {
               audioFramesSent++;
             }
-            baseSenderReport.update(rtpFrame);
+            baseSenderReport.update(rtpFrame, isEnableLogs);
           } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
           } catch (IOException e) {
@@ -209,5 +210,9 @@ public class RtspSender implements VideoPacketCallback, AudioPacketCallback {
 
   public void resetDroppedVideoFrames() {
     droppedVideoFrames = 0;
+  }
+
+  public void setLogs(boolean enable) {
+    this.isEnableLogs = enable;
   }
 }

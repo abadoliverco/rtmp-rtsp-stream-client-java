@@ -123,4 +123,9 @@ public class RtspOnlyAudio extends OnlyAudioBase {
   protected void getAacDataRtp(ByteBuffer aacBuffer, MediaCodec.BufferInfo info) {
     rtspClient.sendAudio(aacBuffer, info);
   }
+
+  @Override
+  public void setLogs(boolean enable) {
+    rtspClient.setLogs(enable);
+  }
 }

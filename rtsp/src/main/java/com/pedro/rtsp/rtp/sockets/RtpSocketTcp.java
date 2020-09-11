@@ -24,8 +24,8 @@ public class RtpSocketTcp extends BaseRtpSocket {
   }
 
   @Override
-  public void sendFrame(RtpFrame rtpFrame) throws IOException {
-    sendFrameTCP(rtpFrame);
+  public void sendFrame(RtpFrame rtpFrame, boolean isEnableLogs) throws IOException {
+    sendFrameTCP(rtpFrame, isEnableLogs);
   }
 
   @Override
@@ -33,7 +33,7 @@ public class RtpSocketTcp extends BaseRtpSocket {
 
   }
 
-  private void sendFrameTCP(RtpFrame rtpFrame) throws IOException {
+  private void sendFrameTCP(RtpFrame rtpFrame, boolean isEnableLogs) throws IOException {
     synchronized (outputStream) {
       int len = rtpFrame.getLength();
       tcpHeader[1] = rtpFrame.getChannelIdentifier();
@@ -42,10 +42,12 @@ public class RtpSocketTcp extends BaseRtpSocket {
       outputStream.write(tcpHeader);
       outputStream.write(rtpFrame.getBuffer(), 0, len);
       outputStream.flush();
-      Log.i(TAG, "wrote packet: "
-          + (rtpFrame.getChannelIdentifier() == (byte) 2 ? "Video" : "Audio")
-          + ", size: "
-          + rtpFrame.getLength());
+      if (isEnableLogs) {
+        Log.i(TAG, "wrote packet: "
+            + (rtpFrame.getChannelIdentifier() == (byte) 2 ? "Video" : "Audio")
+            + ", size: "
+            + rtpFrame.getLength());
+      }
     }
   }
 }

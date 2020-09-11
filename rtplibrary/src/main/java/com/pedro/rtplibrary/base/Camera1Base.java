@@ -62,7 +62,7 @@ public abstract class Camera1Base
   private boolean streaming = false;
   private boolean videoEnabled = true;
   private boolean onPreview = false;
-  private RecordController recordController;
+  protected RecordController recordController;
   private int previewWidth, previewHeight;
   private FpsListener fpsListener = new FpsListener();
 
@@ -796,4 +796,6 @@ public abstract class Camera1Base
   public void onAudioFormat(MediaFormat mediaFormat) {
     recordController.setAudioFormat(mediaFormat);
   }
+
+  public abstract void setLogs(boolean enable);
 }
