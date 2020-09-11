@@ -21,7 +21,7 @@ public abstract class BaseRtpSocket {
 
   public abstract void setDataStream(OutputStream outputStream, String host);
 
-  public abstract void sendFrame(RtpFrame rtpFrame) throws IOException;
+  public abstract void sendFrame(RtpFrame rtpFrame, boolean isEnableLogs) throws IOException;
 
   public abstract void close();
 }

@@ -54,7 +54,7 @@ public abstract class FromFileBase
   private AudioEncoder audioEncoder;
   private GlInterface glInterface;
   private boolean streaming = false;
-  private RecordController recordController;
+  protected RecordController recordController;
   private FpsListener fpsListener = new FpsListener();
 
   private VideoDecoder videoDecoder;
@@ -64,6 +64,8 @@ public abstract class FromFileBase
   private AudioDecoderInterface audioDecoderInterface;
 
   private String videoPath, audioPath;
+  protected boolean videoEnabled = false;
+  private boolean audioEnabled = false;
   private final Object sync = new Object();
   private AudioTrack audioTrackPlayer;
 
@@ -141,6 +143,7 @@ public abstract class FromFileBase
             bitRate, rotation, 2, FormatVideoEncoder.SURFACE, avcProfile, avcProfileLevel);
     if (!result) return false;
     result = videoDecoder.prepareVideo(videoEncoder.getInputSurface());
+    videoEnabled = result;
     return result;
   }
 
@@ -162,19 +165,11 @@ public abstract class FromFileBase
   public boolean prepareAudio(String filePath, int bitRate) throws IOException {
     audioPath = filePath;
     if (!audioDecoder.initExtractor(filePath)) return false;
-    boolean result = audioEncoder.prepareAudioEncoder(bitRate, audioDecoder.getSampleRate(),
-        audioDecoder.isStereo(), 0);
-    prepareAudioRtp(audioDecoder.isStereo(), audioDecoder.getSampleRate());
     audioDecoder.prepareAudio();
-    if (glInterface != null && !(glInterface instanceof OffScreenGlThread)) {
-      int channel =
-          audioDecoder.isStereo() ? AudioFormat.CHANNEL_OUT_STEREO : AudioFormat.CHANNEL_OUT_MONO;
-      int buffSize = AudioTrack.getMinBufferSize(audioDecoder.getSampleRate(), channel,
-          AudioFormat.ENCODING_PCM_16BIT);
-      audioTrackPlayer =
-          new AudioTrack(AudioManager.STREAM_MUSIC, audioDecoder.getSampleRate(), channel,
-              AudioFormat.ENCODING_PCM_16BIT, buffSize, AudioTrack.MODE_STREAM);
-    }
+    boolean result = audioEncoder.prepareAudioEncoder(bitRate, audioDecoder.getSampleRate(),
+        audioDecoder.isStereo(), audioDecoder.getOutsize());
+    prepareAudioRtp(audioDecoder.isStereo(), audioDecoder.getSampleRate());
+    audioEnabled = result;
     return result;
   }
 
@@ -184,21 +179,23 @@ public abstract class FromFileBase
   }
 
   public void playAudioDevice() {
-    if (isAudioDeviceEnabled()) {
-      audioTrackPlayer.stop();
+    if (audioEnabled) {
+      if (isAudioDeviceEnabled()) {
+        audioTrackPlayer.stop();
+      }
+      int channel =
+          audioDecoder.isStereo() ? AudioFormat.CHANNEL_OUT_STEREO : AudioFormat.CHANNEL_OUT_MONO;
+      int buffSize = AudioTrack.getMinBufferSize(audioDecoder.getSampleRate(), channel,
+          AudioFormat.ENCODING_PCM_16BIT);
+      audioTrackPlayer =
+          new AudioTrack(AudioManager.STREAM_MUSIC, audioDecoder.getSampleRate(), channel,
+              AudioFormat.ENCODING_PCM_16BIT, buffSize, AudioTrack.MODE_STREAM);
+      audioTrackPlayer.play();
     }
-    int channel =
-        audioDecoder.isStereo() ? AudioFormat.CHANNEL_OUT_STEREO : AudioFormat.CHANNEL_OUT_MONO;
-    int buffSize = AudioTrack.getMinBufferSize(audioDecoder.getSampleRate(), channel,
-        AudioFormat.ENCODING_PCM_16BIT);
-    audioTrackPlayer =
-        new AudioTrack(AudioManager.STREAM_MUSIC, audioDecoder.getSampleRate(), channel,
-            AudioFormat.ENCODING_PCM_16BIT, buffSize, AudioTrack.MODE_STREAM);
-    audioTrackPlayer.play();
   }
 
   public void stopAudioDevice() {
-    if (isAudioDeviceEnabled()) {
+    if (audioEnabled && isAudioDeviceEnabled()) {
       audioTrackPlayer.stop();
       audioTrackPlayer = null;
     }
@@ -214,8 +211,8 @@ public abstract class FromFileBase
    * @param forceVideo force type codec used. FIRST_COMPATIBLE_FOUND, SOFTWARE, HARDWARE
    */
   public void setForce(CodecUtil.Force forceVideo, CodecUtil.Force forceAudio) {
-    videoEncoder.setForce(forceVideo);
-    audioEncoder.setForce(forceAudio);
+    if (videoEnabled) videoEncoder.setForce(forceVideo);
+    if (audioEnabled) audioEncoder.setForce(forceAudio);
   }
 
   /**
@@ -263,18 +260,18 @@ public abstract class FromFileBase
     if (!recordController.isRunning()) {
       startEncoders();
     } else {
-      resetVideoEncoder();
+      if (videoEnabled) resetVideoEncoder();
     }
     startStreamRtp(url);
   }
 
   private void startEncoders() {
-    videoEncoder.start();
+    if (videoEnabled) videoEncoder.start();
     if (audioTrackPlayer != null) audioTrackPlayer.play();
-    audioEncoder.start();
-    prepareGlView();
-    videoDecoder.start();
-    audioDecoder.start();
+    if (audioEnabled) audioEncoder.start();
+    if (videoEnabled) prepareGlView();
+    if (videoEnabled) videoDecoder.start();
+    if (audioEnabled) audioDecoder.start();
   }
 
   @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
@@ -299,7 +296,7 @@ public abstract class FromFileBase
    */
   @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN_MR2)
   private void replaceGlInterface(GlInterface glInterface) {
-    if (this.glInterface != null && Build.VERSION.SDK_INT >= 18) {
+    if (this.glInterface != null && Build.VERSION.SDK_INT >= 18 && videoEnabled) {
       if (isStreaming() || isRecording()) {
         try {
           this.glInterface.removeMediaCodecSurface();
@@ -380,7 +377,7 @@ public abstract class FromFileBase
    */
   @Deprecated
   public void reTry(long delay) {
-    resetVideoEncoder();
+    if (videoEnabled) resetVideoEncoder();
     reConnect(delay);
   }
 
@@ -428,15 +425,17 @@ public abstract class FromFileBase
         glInterface.removeMediaCodecSurface();
         glInterface.stop();
       }
-      videoDecoder.stop();
-      audioDecoder.stop();
-      if (isAudioDeviceEnabled()) {
+      if (videoEnabled) videoDecoder.stop();
+      if (audioEnabled) audioDecoder.stop();
+      if (audioEnabled && isAudioDeviceEnabled()) {
         audioTrackPlayer.stop();
       }
       audioTrackPlayer = null;
-      videoEncoder.stop();
-      audioEncoder.stop();
+      if (videoEnabled) videoEncoder.stop();
+      if (audioEnabled) audioEncoder.stop();
       recordController.resetFormats();
+      videoEnabled = false;
+      audioEnabled = false;
     }
   }
 
@@ -447,12 +446,12 @@ public abstract class FromFileBase
    * @param loopMode true in loop, false stop stream when video finish.
    */
   public void setLoopMode(boolean loopMode) {
-    videoDecoder.setLoopMode(loopMode);
-    audioDecoder.setLoopMode(loopMode);
+    if (videoEnabled) videoDecoder.setLoopMode(loopMode);
+    if (audioEnabled) audioDecoder.setLoopMode(loopMode);
   }
 
   public void reSyncFile() {
-    if (isStreaming()) audioDecoder.moveTo(videoDecoder.getTime());
+    if (isStreaming() && videoEnabled && audioEnabled) audioDecoder.moveTo(videoDecoder.getTime());
   }
 
   public GlInterface getGlInterface() {
@@ -541,7 +540,7 @@ public abstract class FromFileBase
    * @return return time in seconds. 0 if no streaming
    */
   public double getAudioTime() {
-    return videoDecoder.getTime();
+    return audioDecoder.getTime();
   }
 
   /**
@@ -564,8 +563,8 @@ public abstract class FromFileBase
    * @param time second to move.
    */
   public void moveTo(double time) {
-    videoDecoder.moveTo(time);
-    audioDecoder.moveTo(time);
+    if (videoEnabled) videoDecoder.moveTo(time);
+    if (audioEnabled) audioDecoder.moveTo(time);
   }
 
   @Override
@@ -577,21 +576,23 @@ public abstract class FromFileBase
             glInterface.removeMediaCodecSurface();
             glInterface.stop();
           }
-          videoDecoder.stop();
-          videoDecoder = new VideoDecoder(videoDecoderInterface, this);
-          if (!videoDecoder.initExtractor(videoPath)) {
-            throw new IOException("fail to reset video file");
+          if (videoEnabled) {
+            videoDecoder.stop();
+            if (!videoDecoder.initExtractor(videoPath)) {
+              throw new IOException("fail to reset video file");
+            }
+            prepareGlView();
+            videoDecoder.start();
           }
-          prepareGlView();
-          videoDecoder.start();
         } else {
-          audioDecoder.stop();
-          audioDecoder = new AudioDecoder(this, audioDecoderInterface, this);
-          if (!audioDecoder.initExtractor(audioPath)) {
-            throw new IOException("fail to reset audio file");
+          if (audioEnabled) {
+            audioDecoder.stop();
+            if (!audioDecoder.initExtractor(audioPath)) {
+              throw new IOException("fail to reset audio file");
+            }
+            audioDecoder.prepareAudio();
+            audioDecoder.start();
           }
-          audioDecoder.prepareAudio();
-          audioDecoder.start();
         }
       } catch (IOException e) {
         Log.e(TAG, "Error", e);
@@ -640,7 +641,7 @@ public abstract class FromFileBase
 
   @Override
   public void onAudioFormat(MediaFormat mediaFormat) {
-    recordController.setAudioFormat(mediaFormat);
+    recordController.setAudioFormat(mediaFormat, !videoEnabled);
   }
 
   @Override
@@ -650,4 +651,6 @@ public abstract class FromFileBase
     }
     audioEncoder.inputPCMData(frame);
   }
+
+  public abstract void setLogs(boolean enable);
 }

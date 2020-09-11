@@ -111,6 +111,8 @@ public class RtspFromFile extends FromFileBase {
   }
 
   public void setVideoCodec(VideoCodec videoCodec) {
+    recordController.setVideoMime(
+        videoCodec == VideoCodec.H265 ? CodecUtil.H265_MIME : CodecUtil.H264_MIME);
     videoEncoder.setType(videoCodec == VideoCodec.H265 ? CodecUtil.H265_MIME : CodecUtil.H264_MIME);
   }
 
@@ -128,6 +130,10 @@ public class RtspFromFile extends FromFileBase {
   @Override
   protected void startStreamRtp(String url) {
     rtspClient.setUrl(url);
+    rtspClient.setOnlyAudio(!videoEnabled);
+    if (!videoEnabled) {
+      rtspClient.connect();
+    }
   }
 
   @Override
@@ -167,6 +173,11 @@ public class RtspFromFile extends FromFileBase {
   @Override
   protected void getAacDataRtp(ByteBuffer aacBuffer, MediaCodec.BufferInfo info) {
     rtspClient.sendAudio(aacBuffer, info);
+  }
+
+  @Override
+  public void setLogs(boolean enable) {
+    rtspClient.setLogs(enable);
   }
 }
 

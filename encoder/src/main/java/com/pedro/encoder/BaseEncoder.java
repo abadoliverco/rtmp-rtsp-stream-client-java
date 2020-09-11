@@ -29,6 +29,7 @@ public abstract class BaseEncoder implements EncoderCallback {
   protected boolean isBufferMode = true;
   protected CodecUtil.Force force = CodecUtil.Force.FIRST_COMPATIBLE_FOUND;
   private MediaCodec.Callback callback;
+  private long oldTimeStamp = 0L;
 
   public void restart() {
     start(false);
@@ -70,6 +71,11 @@ public abstract class BaseEncoder implements EncoderCallback {
 
   protected abstract void stopImp();
 
+  protected void fixTimeStamp(MediaCodec.BufferInfo info) {
+    if (oldTimeStamp > info.presentationTimeUs) info.presentationTimeUs = oldTimeStamp;
+    else oldTimeStamp = info.presentationTimeUs;
+  }
+
   public void stop() {
     running = false;
     stopImp();
@@ -81,6 +87,7 @@ public abstract class BaseEncoder implements EncoderCallback {
       }
     }
     queue.clear();
+    queue = new ArrayBlockingQueue<>(80);
     try {
       codec.stop();
       codec.release();
@@ -88,6 +95,7 @@ public abstract class BaseEncoder implements EncoderCallback {
     } catch (IllegalStateException | NullPointerException e) {
       codec = null;
     }
+    oldTimeStamp = 0L;
   }
 
   protected abstract MediaCodecInfo chooseEncoder(String mime);
@@ -122,8 +130,10 @@ public abstract class BaseEncoder implements EncoderCallback {
       byteBuffer.put(frame.getBuffer(), frame.getOffset(), frame.getSize());
       long pts = System.nanoTime() / 1000 - presentTimeUs;
       mediaCodec.queueInputBuffer(inBufferIndex, 0, frame.getSize(), pts, 0);
-    } catch (InterruptedException | NullPointerException e) {
+    } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
+    } catch (NullPointerException e) {
+      Log.i(TAG, "Encoding error", e);
     }
   }
 
