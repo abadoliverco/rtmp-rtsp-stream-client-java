@@ -3,8 +3,8 @@ package com.pedro.rtplibrary.view;
 import android.content.Context;
 import android.graphics.SurfaceTexture;
 import android.os.Build;
-import androidx.annotation.RequiresApi;
 import android.view.Surface;
+import androidx.annotation.RequiresApi;
 import com.pedro.encoder.input.gl.SurfaceManager;
 import com.pedro.encoder.input.gl.render.ManagerRender;
 import com.pedro.encoder.input.gl.render.filters.BaseFilterRender;
@@ -28,6 +28,7 @@ public class OffScreenGlThread
   private boolean running = true;
   private boolean initialized = false;
 
+  private SurfaceManager surfaceManagerPhoto = null;
   private SurfaceManager surfaceManager = null;
   private SurfaceManager surfaceManagerEncoder = null;
 
@@ -104,6 +105,10 @@ public class OffScreenGlThread
   @Override
   public void addMediaCodecSurface(Surface surface) {
     synchronized (sync) {
+      if (surfaceManagerPhoto != null) {
+        surfaceManagerPhoto.release();
+        surfaceManagerPhoto = null;
+      }
       surfaceManagerEncoder = new SurfaceManager(surface, surfaceManager);
     }
   }
@@ -112,8 +117,11 @@ public class OffScreenGlThread
   public void removeMediaCodecSurface() {
     synchronized (sync) {
       if (surfaceManagerEncoder != null) {
-        surfaceManagerEncoder.release(false);
+        surfaceManagerEncoder.release();
         surfaceManagerEncoder = null;
+      }
+      if (surfaceManagerPhoto == null && surfaceManager != null) {
+        surfaceManagerPhoto = new SurfaceManager(encoderWidth, encoderHeight, surfaceManager);
       }
     }
   }
@@ -192,8 +200,12 @@ public class OffScreenGlThread
 
   private void releaseSurfaceManager() {
     if (surfaceManager != null) {
-      surfaceManager.release(true);
+      surfaceManager.release();
       surfaceManager = null;
+    }
+    if (surfaceManagerPhoto != null) {
+      surfaceManagerPhoto.release();
+      surfaceManagerPhoto = null;
     }
   }
 
@@ -204,6 +216,9 @@ public class OffScreenGlThread
     surfaceManager.makeCurrent();
     textureManager.initGl(context, encoderWidth, encoderHeight, encoderWidth, encoderHeight);
     textureManager.getSurfaceTexture().setOnFrameAvailableListener(this);
+    if (surfaceManagerEncoder == null && surfaceManagerPhoto == null) {
+      surfaceManagerPhoto = new SurfaceManager(encoderWidth, encoderHeight, surfaceManager);
+    }
     semaphore.release();
     try {
       while (running) {
@@ -226,13 +241,17 @@ public class OffScreenGlThread
                     false, isStreamVerticalFlip, isStreamHorizontalFlip);
               }
               //Necessary use surfaceManagerEncoder because preview manager size in background is 1x1.
-              if (takePhotoCallback != null) {
-                takePhotoCallback.onTakePhoto(
-                    GlUtil.getBitmap(false, 0, encoderWidth, encoderHeight, encoderWidth, encoderHeight));
-                takePhotoCallback = null;
-              }
-              surfaceManagerEncoder.swapBuffer();
+            } else if (takePhotoCallback != null && surfaceManagerPhoto != null) {
+              surfaceManagerPhoto.makeCurrent();
+              textureManager.drawScreen(encoderWidth, encoderHeight, false, 0, streamRotation,
+                  false, isStreamVerticalFlip, isStreamHorizontalFlip);
             }
+            if (takePhotoCallback != null) {
+              takePhotoCallback.onTakePhoto(GlUtil.getBitmap(encoderWidth, encoderHeight));
+              takePhotoCallback = null;
+            }
+            if (surfaceManagerEncoder != null) surfaceManagerEncoder.swapBuffer();
+            else if (surfaceManagerPhoto != null) surfaceManagerPhoto.swapBuffer();
           }
           if (!filterQueue.isEmpty()) {
             Filter filter = filterQueue.take();

@@ -12,6 +12,9 @@ import android.media.projection.MediaProjectionManager;
 import android.os.Build;
 import android.view.Surface;
 import android.view.SurfaceView;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import com.pedro.encoder.Frame;
 import com.pedro.encoder.audio.AudioEncoder;
@@ -27,6 +30,8 @@ import com.pedro.rtplibrary.util.FpsListener;
 import com.pedro.rtplibrary.util.RecordController;
 import com.pedro.rtplibrary.view.GlInterface;
 import com.pedro.rtplibrary.view.OffScreenGlThread;
+
+import java.io.FileDescriptor;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
@@ -177,7 +182,8 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
    * @see AudioPlaybackCaptureConfiguration.Builder#Builder(MediaProjection)
    */
   @RequiresApi(api = Build.VERSION_CODES.Q)
-  public boolean prepareInternalAudio(int bitrate, int sampleRate, boolean isStereo) {
+  public boolean prepareInternalAudio(int bitrate, int sampleRate, boolean isStereo,
+      boolean echoCanceler, boolean noiseSuppressor) {
     if (mediaProjection == null) {
       mediaProjection = mediaProjectionManager.getMediaProjection(resultCode, data);
     }
@@ -188,11 +194,17 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
             .addMatchingUsage(AudioAttributes.USAGE_GAME)
             .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
             .build();
-    microphoneManager.createInternalMicrophone(config, sampleRate, isStereo);
+    microphoneManager.createInternalMicrophone(config, sampleRate, isStereo, echoCanceler,
+        noiseSuppressor);
     prepareAudioRtp(isStereo, sampleRate);
     audioInitialized = audioEncoder.prepareAudioEncoder(bitrate, sampleRate, isStereo,
         microphoneManager.getMaxInputSize());
     return audioInitialized;
+  }
+
+  @RequiresApi(api = Build.VERSION_CODES.Q)
+  public boolean prepareInternalAudio(int bitrate, int sampleRate, boolean isStereo) {
+    return prepareInternalAudio(bitrate, sampleRate, isStereo, false, false);
   }
 
   /**
@@ -219,6 +231,11 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
     return prepareAudio(64 * 1024, 32000, true, false, false);
   }
 
+  @RequiresApi(api = Build.VERSION_CODES.Q)
+  public boolean prepareInternalAudio() {
+    return prepareInternalAudio(64 * 1024, 32000, true);
+  }
+
   /**
    * @param forceVideo force type codec used. FIRST_COMPATIBLE_FOUND, SOFTWARE, HARDWARE
    * @param forceAudio force type codec used. FIRST_COMPATIBLE_FOUND, SOFTWARE, HARDWARE
@@ -229,12 +246,13 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
   }
 
   /**
-   * Start record a MP4 video. Need be called while stream.
+   * Starts recording an MP4 video. Needs to be called while streaming.
    *
-   * @param path where file will be saved.
-   * @throws IOException If you init it before start stream.
+   * @param path Where file will be saved.
+   * @throws IOException If initialized before a stream.
    */
-  public void startRecord(String path, RecordController.Listener listener) throws IOException {
+  public void startRecord(@NonNull String path, @Nullable RecordController.Listener listener)
+      throws IOException {
     recordController.startRecord(path, listener);
     if (!streaming) {
       startEncoders(resultCode, data);
@@ -243,8 +261,30 @@ public abstract class DisplayBase implements GetAacData, GetVideoData, GetMicrop
     }
   }
 
-  public void startRecord(final String path) throws IOException {
+  public void startRecord(@NonNull final String path) throws IOException {
     startRecord(path, null);
+  }
+
+  /**
+   * Starts recording an MP4 video. Needs to be called while streaming.
+   *
+   * @param fd Where the file will be saved.
+   * @throws IOException If initialized before a stream.
+   */
+  @RequiresApi(api = Build.VERSION_CODES.O)
+  public void startRecord(@NonNull final FileDescriptor fd,
+      @Nullable RecordController.Listener listener) throws IOException {
+    recordController.startRecord(fd, listener);
+    if (!streaming) {
+      startEncoders(resultCode, data);
+    } else if (videoEncoder.isRunning()) {
+      resetVideoEncoder();
+    }
+  }
+
+  @RequiresApi(api = Build.VERSION_CODES.O)
+  public void startRecord(@NonNull final FileDescriptor fd) throws IOException {
+    startRecord(fd, null);
   }
 
   /**
