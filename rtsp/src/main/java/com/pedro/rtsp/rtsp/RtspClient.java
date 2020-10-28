@@ -162,6 +162,7 @@ public class RtspClient {
                   commandsManager.getPort());
               if (connectionSocket == null) throw new IOException("Socket creation failed");
             }
+            connectionSocket.setSendBufferSize(1);
             connectionSocket.setSoTimeout(5000);
             reader = new BufferedReader(new InputStreamReader(connectionSocket.getInputStream()));
             outputStream = connectionSocket.getOutputStream();
@@ -284,6 +285,10 @@ public class RtspClient {
 
   public void sendAudio(ByteBuffer aacBuffer, MediaCodec.BufferInfo info) {
     rtspSender.sendAudioFrame(aacBuffer, info);
+  }
+
+  public boolean hasCongestion() {
+    return rtspSender.hasCongestion();
   }
 
   public void reConnect(long delay) {

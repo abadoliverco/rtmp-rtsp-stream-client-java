@@ -1051,6 +1051,13 @@ public class SrsFlvMuxer {
     }
   }
 
+  public boolean hasCongestion() {
+    float size = mFlvVideoTagCache.size();
+    float remaining = mFlvVideoTagCache.remainingCapacity();
+    float capacity = size + remaining;
+    return size >= capacity * 0.2;  //more than 20% queue used. You could have congestion
+  }
+
   public void setLogs(boolean enable) {
     publisher.setLogs(enable);
   }
