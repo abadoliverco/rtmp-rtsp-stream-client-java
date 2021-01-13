@@ -117,7 +117,7 @@ public class MicrophoneManager {
         Log.i(TAG, "Internal microphone created, " + sampleRate + "hz, " + chl);
         created = true;
       } else {
-        return createMicrophone(sampleRate, isStereo, echoCanceler, noiseSuppressor);
+        return createMicrophone(MediaRecorder.AudioSource.CAMCORDER, sampleRate, isStereo, echoCanceler, noiseSuppressor);
       }
     } catch (IllegalArgumentException e) {
       Log.e(TAG, "create microphone error", e);
